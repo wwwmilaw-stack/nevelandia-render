@@ -1,3 +1,4 @@
+messages_dict = {}
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from twilio.twiml.messaging_response import MessagingResponse
@@ -9,7 +10,14 @@ import os
 # --------------------
 
 app = Flask(__name__)
-CORS(app)
+# ✅ CORS CONFIGURATO CORRETTAMENTE
+CORS(
+    app,
+    resources={
+        r"/chat": {"origins": ["https://www.nevelandia.com"]},
+        r"/whatsapp": {"origins": "*"}
+    }
+)
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
@@ -132,28 +140,30 @@ def whatsapp():
 # ENDPOINT WEB (WordPress / JS)
 # --------------------
 
-@app.route("/chat", methods=["POST"])
+@app.route("/chat", methods=["POST", "OPTIONS"])
 def web_chat():
-    data = request.get_json()
-    user_message = data.get("message", "")
-    session_id = data.get("session_id", "web")
+    if request.method == "OPTIONS":
+        return "", 200
 
-    if session_id not in messages_dict:
-        messages_dict[session_id] = [{"role": "system", "content": system_prompt}]
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify({"reply": "Scrivi una domanda 🙂"}), 200
 
-    messages = messages_dict[session_id]
-    messages.append({"role": "user", "content": user_message})
+    user_message = data.get("message", "").strip()
+    if not user_message:
+        return jsonify({"reply": "Scrivi una domanda 🙂"}), 200
 
     response = client.chat.completions.create(
         model="gpt-4o-mini",
-        messages=messages,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_message}
+        ],
         temperature=0.3
     )
 
-    ai_reply = response.choices[0].message.content
-    messages.append({"role": "assistant", "content": ai_reply})
-
-    return jsonify({"reply": ai_reply})
+    reply = response.choices[0].message.content
+    return jsonify({"reply": reply})
 
 # --------------------
 # AVVIO
